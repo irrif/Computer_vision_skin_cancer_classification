@@ -134,7 +134,3 @@ class ResNet18(nn.Module):
         out = self.fc(out)
 
         return out
-    
-    
-    def train(self):
-        pass
