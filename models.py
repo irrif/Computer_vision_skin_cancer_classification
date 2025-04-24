@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn as nn
@@ -119,18 +121,157 @@ class ResNet18(nn.Module):
     
 
     def forward(self, x):
+        # ResNet first layer
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
         out = self.maxpool(out)
 
+        # 4 BasicBlock repeated twice
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
 
+        # Output layer
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
 
         return out
+    
+
+def train_model(
+        model: nn.Module, 
+        device: torch.device,
+        train_loader: DataLoader,
+        loss_function: nn.functional,
+        optimizer: torch.optim,
+        epoch: int, 
+        save: bool, 
+        verbose: bool
+    ) -> Tuple[float]:
+    """
+    Train a model with the specified optimizer and loss function, over the number of epochs.
+    Return loss and accuracy if save=True, otherwise return (0, 0).
+
+    Parameters
+    ----------
+    model : pytorch model
+        model to be trained
+    device : torch.device
+        Device on which the model will be trained
+    train_loader : torch.DataLoader
+        Training DataLoader
+    optimizer : torch.optim
+        Optimizer
+    loss_function : nn.functional
+        Loss function
+    epoch : int
+        Number of epoch to train the model
+    save : bool
+        Set True to return the loss and accuracy history
+    verbose : bool
+        Set True to print performance.
+
+    Returns
+    -------
+    (float, float)
+    """
+    # Set model in training mode
+    model.train()
+
+    losses, corrects = [], 0
+
+    for batch_idx, (data, label) in enumerate(train_loader):
+        # Sent data and label to specified device
+        data, label = data.to(device), label.to(device)
+        optimizer.zero_grad() # Set all gradients to 0
+        y_pred = model(data)
+        loss = loss_function(y_pred, label)
+        # Saves batch loss in a list
+        if save:
+            losses.append(loss)
+
+        loss.backward() # Backpropagation
+        optimizer.step()
+
+        # Count correct predictions
+        preds = y_pred.argmax(dim=1, keepdim=True)
+        corrects += preds.eq(label.view_as(preds)).sum().item()
+
+        # Print loss every x batches
+        if verbose:
+            if batch_idx % 10 == 0:
+                print("Train Epoch {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                    epoch, batch_idx * len(data), len(train_loader.dataset),
+                    100 * batch_idx / len(train_loader.dataset), loss.item()
+                ))
+    # Compute epoch average train loss and train accuracy
+    avg_loss = sum(losses) / len(losses)
+    overall_accuracy = 100 * corrects / len(train_loader.dataset)
+
+    # Print epoch average loss and accuracy
+    if verbose:
+        print("Train set : Average loss {:.4f}, Accuracy : {}/{} ({:.0f}%)".format(
+            avg_loss, corrects, len(train_loader.dataset), overall_accuracy
+        ))
+
+    # Return epoch average loss and accuracy
+    if save:
+        return avg_loss, overall_accuracy
+    else:
+        return 0.0, 0.0
+
+
+
+def validate_model(
+        model: nn.Module, 
+        device: torch.device,
+        valid_loader: DataLoader,
+        loss_function: nn.functional,
+        save: bool, 
+        verbose: bool
+    ) -> Tuple[float]:
+    """
+    
+    Return loss and accuracy if save=True, otherwise return (0, 0).
+    """
+    model.to(device)
+
+    val_losses, corrects = [], 0
+
+    model.eval() # Set model in evaluation mode
+    with torch.no_grad():
+        for data, label in valid_loader:
+            # Sent data and label to specified device
+            data, label = data.to(device), label.to(device)
+
+            # Predict and compute loss
+            y_pred = model(data)
+            loss = loss_function(y_pred, label)
+
+            # Save loss in a list
+            if save:
+                val_losses.append(loss)
+
+            # Count correct predictions
+            pred = y_pred.argmax(dim=1, keepdim=True)
+            corrects += pred.eq(label.view_as(pred)).sum().item()
+
+            # Print validation loss and accuracy
+            avg_loss = sum(val_losses) / len(val_losses)
+            size = len(valid_loader.dataset)
+            accuracy = 100 *  corrects / size
+
+        if verbose:
+            print("\nValidation set : Average Loss: {:.4f}, Accuracy : {}/{} ({:.0f}%)\n".format(
+                avg_loss, corrects, size, accuracy
+
+            ))
+
+    # Return epoch average loss and accuracy
+    if save:
+        return avg_loss, accuracy
+    else:
+        return 0.0, 0.0
