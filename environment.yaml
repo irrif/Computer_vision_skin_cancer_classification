@@ -1,0 +1,26 @@
+name: cv_skin_cancer
+channels:
+  - anaconda
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.12.3
+  - dataset==3.5.0
+  - numpy==2.0.1
+  - seaborn==0.13.2
+  - sklearn==1.6.1
+  - pip
+  - pip:
+      - contourpy==1.3.2
+      - cycler==0.12.1
+      - fonttools==4.57.0
+      - matplotlib==3.10.1
+      - pillow==11.0.0
+      - polars==1.27.1
+      - pyparsing==3.2.3
+      - sympy==1.13.1
+      - torch==2.6.0+cu126
+      - torchaudio==2.6.0+cu126
+      - torchvision==0.21.0+cu126
+      - uv==0.6.14
