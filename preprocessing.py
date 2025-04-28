@@ -1,181 +1,249 @@
 from typing import Tuple
 
+import datasets
 from datasets import load_dataset
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 from torchvision.transforms import transforms
+from torchvision.transforms.functional import adjust_contrast
 
 from sklearn.preprocessing import LabelEncoder
 
 
-def import_and_preprocess(dataset: str = "marmal88/skin_cancer",
-                          resize: tuple = (256, 256),
-                          centercrop: tuple = (224, 224),
-                          batch_size: int = 32,
-                          shuffle: bool = True) -> Tuple[DataLoader]:
-    """
-    Import and preprocess the dataset by resizing it, croping it and convert it to a tensor.
-    Returns training, validation and test set as a tensor of shape (n, 3, 224, 224) + label mapping as a dict.
+class CustomDataset(Dataset):
+    def __init__(
+            self,
+            tensors: torch.Tensor,
+            minority_classes: list,
+            train: bool,
+            transform: transforms
+        ):
+        self.tensors = tensors
+        self.minority_classes = minority_classes
+        self.train = train
+        self.transform = transform
 
+    def __len__(self):
+        return self.tensors[0].size(0)
+    
+    def __getitem__(self, idx):
+        # Retrieve image
+        data = self.tensors[0][idx]
+        # Retrieve label
+        label = self.tensors[1][idx]
+        # Transform image
+        if self.transform:
+            # If train set, apply data augmentation only on minority classes
+            if self.train and label in self.minority_classes:
+                data = self.transform(data)
+            else:
+                data = self.transform(data)
+        
+        # Ensure that all images are 224x224 pixels
+        if data.size(2) != 224:
+            data = transforms.CenterCrop(size=(224, 224))(data)
+
+        return {"image": data, "label": label}
+    
+
+class AdjustContrast:
+    """
+    Adjust contrast class to be applied during training
+    """
+    def __init__(self, contrast_factor):
+        self.contrast_factor = contrast_factor
+
+    def __call__(self, img):
+        return adjust_contrast(img, self.contrast_factor)
+
+    
+
+def generate_dataloader(
+        dataset: Dataset,
+        part_set: str,
+        preprocess_transform: transforms,
+        label_encoder: LabelEncoder,
+        minority_classes: list,
+        transform: transforms,
+        train: bool,
+        batch_size: int,
+        shuffle: bool
+) -> DataLoader:
+    """
+    
     Parameters
     ----------
-    resize : tuple
-        Size at which to resize the photo
-    centercrop : tuple
-        Desired output size of the crop
+    dataset : Dataset
+        HuggingFace dataset
+    part_set: {'train', 'validation', 'test'}
+        Train, validation or test set
+    preprocess_transform : list of Transform objects
+        List of pre transformations.
+    label_encoder : LabelEncoder
+        Label encoder object.
+    minority_classes : list
+        List of under-represented classes (as integers)
+    transform : torch.transforms
+        Transformation to apply to this specific part set
+    train : bool
+        True if training set
     batch_size : int
         Batch size
     shuffle : bool
-        Set to True to have the data reshuffled at every epoch.
+        True to shuffle set during training phase.
 
     Returns
     -------
-    tuple of DataLoader + dict
+    DataLoader
     """
-    # Import dataset
-    ds = load_dataset(dataset)
+    dataset = load_dataset(dataset)[part_set]
 
-    # Preprocess and resize the data
-    train_data, valid_data, test_data = transform_and_preprocess(
-        dataset=ds, resize=resize, centercrop=centercrop
+    set_images = import_and_preprocess_image(
+        dataset=dataset,
+        preprocess_transform=preprocess_transform
     )
 
-    # Extract labels
-    train_labels, valid_labels, test_labels, mapping_dict = extract_labels(
-        dataset=ds
+    set_labels = extract_labels(
+        dataset=dataset,
+        label_encoder=label_encoder
     )
-    
-    # Create TensorDataset objects
-    train_dataset = create_tensor_dataset(train_data, train_labels)
-    valid_dataset = create_tensor_dataset(valid_data, valid_labels)
-    test_dataset = create_tensor_dataset(test_data, test_labels)
 
-    # Create DataLoader objects
-    train_dataloader = create_dataloader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle)
-    valid_dataloader = create_dataloader(dataset=valid_dataset, batch_size=batch_size, shuffle=shuffle)
-    test_dataloader = create_dataloader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle)
+    # Create train dataset with data augmentation
+    dataset = create_torch_dataset(
+        data=set_images,
+        label=set_labels,
+        part_set=part_set,
+        minority_classes=minority_classes,
+        train=train,
+        transform=transform
+    )
 
-    return train_dataloader, valid_dataloader, test_dataloader, mapping_dict
+    dataloader = create_dataloader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=shuffle
+    )
+
+    return dataloader
 
 
-def transform_and_preprocess(dataset,
-                             resize: tuple = (256, 256),
-                             centercrop: tuple = (224, 224),
-                             transformations = None) -> Tuple[torch.Tensor]:
+def import_and_preprocess_image(
+        dataset: datasets.Dataset,
+        preprocess_transform = None
+    ) -> Tuple[torch.Tensor]:
     """
     Transform and preprocess the data.
 
     Parameters
     ----------
-    dataset : TensorDataset
+    dataset : datasets.Dataset
         Dataset with data and label as a TensorDataset object
-    resize : tuple
-        Size at which to resize the photo
-    centercrop : tuple
-        Desired output size of the crop
     transformations : list of Transform objects
         List of transformations to be applied to the dataset
 
     Returns
     -------
-    tuple of torch.Tensor
-    """
-
-    if not transformations:
-        preprocess_transforms = transforms.Compose([
-            transforms.Resize(size=resize),
-            transforms.CenterCrop(size=centercrop),
-            transforms.ToTensor()
-        ])
-    else:
-        preprocess_transforms = transformations
+    torch.Tensor
+    """    
+    # If no modifications then transform to tensors
+    if preprocess_transform is None:
+        preprocess_transform = transforms.ToTensor()
     
     # Preprocess the data in a comprehension list, then turn it into a numpy array and finally in a torch.Tensor
-    train_orig = torch.from_numpy(
-        np.array([
-            preprocess_transforms(dataset['train'][idx]['image']) for idx in range(len(dataset['train']))
-        ])
+    image_set = image_to_torch(dataset=dataset, transform=preprocess_transform)
+
+    return image_set
+
+
+def image_to_torch(
+        dataset: Dataset,  
+        transform: transforms
+    ) -> torch.Tensor:
+    """
+    Converts image dataset to a torch tensor.
+
+    Parameters
+    ----------
+    dataset : Dataset
+        Dataset to transform.
+    transform : torch.transforms
+        Transformations to apply.
+
+    Returns
+    -------
+    torch.Tensor
+
+    Example
+    -------
+    >>> transformations = transforms.Compose([
+    >>>                       transforms.Resize(size=(256, 256)),
+    >>>                       transforms.ToTensor()
+    >>>                   ])
+    >>> image_to_torch(dataset, 'train', transformations)
+    """
+    torch_tensor = torch.from_numpy(
+        np.array(
+            [transform(dataset[idx]['image']) for idx in range(len(dataset))]
+        )
     )
 
-    valid_orig = torch.from_numpy(
-        np.array([
-            preprocess_transforms(dataset['validation'][idx]['image']) for idx in range(len(dataset['validation']))
-        ])
-    )
-
-    test_orig = torch.from_numpy(
-        np.array([
-            preprocess_transforms(dataset['test'][idx]['image']) for idx in range(len(dataset['test']))
-        ])
-    )
-
-    return train_orig, valid_orig, test_orig
+    return torch_tensor
 
 
-def extract_labels(dataset) -> tuple[torch.Tensor]:
+def extract_labels(
+        dataset: Dataset,
+        label_encoder: LabelEncoder
+    ) -> torch.Tensor:
     """
     Extract labels from the dataset and convert them into numerical values.
-    Returns training, validation and test label as a Tensor, and label mapping as a dict.
+    Returns labels encoded as torch.Tensor
 
     Parameters
     ----------
-    dataset : pd.DataFrame or Dataset
-        Dataset containing labels
-
+    dataset : HuggingFace Dataset
+        Dataset containing labels.
+    label_encoder : LabelEncoder
+        Label encoder object.
     Returns
     -------
-    tuple of torch.Tensor and dict
+    torch.Tensor
     """
 
-    le = LabelEncoder()
+    # If label encoder has already been fitted
+    if not hasattr(label_encoder, 'classes_'):
+        labels = torch.from_numpy(label_encoder.fit_transform(np.array(dataset['dx'])))
+    # If label encoder first time met labels
+    else:
+        labels = torch.from_numpy(label_encoder.transform(np.array(dataset['dx'])))
 
-    train_labels = torch.from_numpy(le.fit_transform(np.array(dataset['train']['dx'])))
-    valid_labels = torch.from_numpy(le.transform(np.array(dataset['validation']['dx'])))
-    test_labels = torch.from_numpy(le.transform(np.array(dataset['test']['dx'])))
-
-    mapping_dict = get_labels_mapping(labelencoder=le)
-
-    return train_labels, valid_labels, test_labels, mapping_dict
+    return labels
 
 
-def get_labels_mapping(labelencoder: LabelEncoder) -> dict:
+def create_torch_dataset(
+        data: torch.Tensor,
+        label: torch.Tensor,
+        part_set: str,
+        minority_classes: list,
+        train: bool,
+        transform: transforms
+    ) -> Dataset:
     """
-    Return a dictionnary containing the mapping between labels and tags.
-    Key is an integer and value a string.
-
-    Parameters
-    ----------
-    labelencoder : LabelEncoder
-        Scikit-learn LabelEncoder
-
-    Returns
-    -------
-    dict
+    
     """
+    if part_set == 'train':
+        train = True
+    else:
+        train = False
 
-    return dict(zip(labelencoder.transform(labelencoder.classes_), labelencoder.classes_))
-
-
-def create_tensor_dataset(data: torch.Tensor = None, labels: torch.Tensor = None) -> TensorDataset:
-    """
-    Create a TensorDataset object.
-
-    Parameters
-    ----------
-    data : torch.Tensor
-        Dataset as a Tensor object
-    labels : torch.Tensor
-        Labels as a Tensor object
-
-    Returns
-    -------
-    TensorDataset
-    """
-
-    dataset = TensorDataset(data, labels)
+    dataset = CustomDataset(
+        tensors=(data, label),
+        minority_classes=minority_classes,
+        train=train,
+        transform=transform
+    )
 
     return dataset
 
@@ -201,3 +269,21 @@ def create_dataloader(dataset: TensorDataset = None, batch_size: int = 32, shuff
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle)
 
     return dataloader
+
+
+def get_labels_mapping(labelencoder: LabelEncoder) -> dict:
+    """
+    Return a dictionnary containing the mapping between labels and tags.
+    Key is an integer and value a string.
+
+    Parameters
+    ----------
+    labelencoder : LabelEncoder
+        Scikit-learn LabelEncoder
+
+    Returns
+    -------
+    dict
+    """
+
+    return dict(zip(labelencoder.transform(labelencoder.classes_), labelencoder.classes_))
