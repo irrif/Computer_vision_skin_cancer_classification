@@ -27,4 +27,9 @@ To edit :
 https://github.com/marimo-team/marimo for more information 
 
 
+<<<<<<< HEAD
+=======
+## Initialize environment
+Create a virtual environment with `conda env create -f environment.yaml`
+>>>>>>> 18ada4c91e086090f4d887f760c524cd197661aa
 
