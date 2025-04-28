@@ -73,7 +73,6 @@ def generate_dataloader(
         shuffle: bool
 ) -> DataLoader:
     """
-    
     Parameters
     ----------
     dataset : Dataset
@@ -98,6 +97,28 @@ def generate_dataloader(
     Returns
     -------
     DataLoader
+
+    Example
+    -------
+    >>> dataset = load_dataset('marmal88/skin_cancer')
+    >>> preprocess_transform = transforms.Resize(size=(256, 256))
+    >>> label_encoder = LabelEncoder()
+    >>> minority_classes = [1, 4, 5]
+    >>> train_transform = transforms.Compose([
+    >>>     transforms.RandomCrop(size=(224, 224)),
+    >>>     transforms.RandomHorizontalFlip(p=0.5)
+    >>> ])
+    >>> generate_dataloader(
+    >>>     dataset=dataset,
+    >>>     part_set='train',
+    >>>     preprocess_transform=preprocess_transform,
+    >>>     label_encoder=label_encoder
+    >>>     minority_classes=minority_classes,
+    >>>     transform=train_transform,
+    >>>     train=True,
+    >>>     batch_size=32,
+    >>>     shuffle=True
+    >>> )
     """
     dataset = load_dataset(dataset)[part_set]
 
@@ -132,7 +153,7 @@ def generate_dataloader(
 
 def import_and_preprocess_image(
         dataset: datasets.Dataset,
-        preprocess_transform = None
+        preprocess_transform: transforms
     ) -> Tuple[torch.Tensor]:
     """
     Transform and preprocess the data.
@@ -141,7 +162,7 @@ def import_and_preprocess_image(
     ----------
     dataset : datasets.Dataset
         Dataset with data and label as a TensorDataset object
-    transformations : list of Transform objects
+    transformations : list of transforms objects
         List of transformations to be applied to the dataset
 
     Returns
@@ -207,6 +228,7 @@ def extract_labels(
         Dataset containing labels.
     label_encoder : LabelEncoder
         Label encoder object.
+
     Returns
     -------
     torch.Tensor
@@ -284,6 +306,9 @@ def get_labels_mapping(labelencoder: LabelEncoder) -> dict:
     Returns
     -------
     dict
+
+    Example
+    
     """
 
     return dict(zip(labelencoder.transform(labelencoder.classes_), labelencoder.classes_))
