@@ -151,9 +151,15 @@ class EarlyStopping():
         self.early_stop = False
         self.counter = 0
         self.best_model_state = None
+        self.epoch_stop = 0
 
 
-    def __call__(self, val_loss, model):
+    def __call__(
+            self,
+            val_loss: float,
+            model: nn.Module,
+            epoch: int
+        ) -> None:
         score = -val_loss
         if self.best_score is None:
             self.best_score = score
@@ -165,6 +171,7 @@ class EarlyStopping():
             # If counter greater or equal than patience then early stop
             if self.counter >= self.patience:
                 self.early_stop = True
+                self.epoch_stop = epoch - self.patience
 
         else:
             self.best_score = score
