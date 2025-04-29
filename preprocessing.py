@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 
 from torchvision.transforms import transforms
 from torchvision.transforms.functional import adjust_contrast
@@ -14,6 +14,9 @@ from sklearn.preprocessing import LabelEncoder
 
 
 class CustomDataset(Dataset):
+    """
+    Custom Dataset for our skin_cancer hugging face dataset.
+    """
     def __init__(
             self,
             tensors: torch.Tensor,
@@ -21,10 +24,10 @@ class CustomDataset(Dataset):
             train: bool,
             transform: transforms
         ):
-        self.tensors = tensors
+        self.tensors = tensors # Data and labels
         self.minority_classes = minority_classes
-        self.train = train
-        self.transform = transform
+        self.train = train # train set or not
+        self.transform = transform # transformations
 
     def __len__(self):
         return self.tensors[0].size(0)
@@ -60,7 +63,6 @@ class AdjustContrast:
         return adjust_contrast(img, self.contrast_factor)
 
     
-
 def generate_dataloader(
         dataset: Dataset,
         part_set: str,
@@ -71,7 +73,7 @@ def generate_dataloader(
         train: bool,
         batch_size: int,
         shuffle: bool
-) -> DataLoader:
+    ) -> DataLoader:
     """
     Parameters
     ----------
@@ -120,13 +122,16 @@ def generate_dataloader(
     >>>     shuffle=True
     >>> )
     """
-    dataset = load_dataset(dataset)[part_set]
+    # Load train, validation or test set
+    dataset = load_dataset(dataset, split=part_set)
 
+    # Basic transformations on the dataset
     set_images = import_and_preprocess_image(
         dataset=dataset,
         preprocess_transform=preprocess_transform
     )
 
+    # Extract labels from dataset
     set_labels = extract_labels(
         dataset=dataset,
         label_encoder=label_encoder
@@ -253,7 +258,26 @@ def create_torch_dataset(
         transform: transforms
     ) -> Dataset:
     """
-    
+    Create a pytorch dataset with possible transformations.
+
+    Parameters
+    ----------
+    data : torch.Tensor
+        Images
+    label : torch.Tensor
+        Corresponding labels
+    part_set : {'train', 'validation', 'test'}
+        Training, validation or test set
+    minority_classes : list
+        List of under-represented classes
+    train : bool
+        Set to True if training set
+    transform : transforms
+        Transformations to apply
+        
+    Returns
+    -------
+    Dataset
     """
     if part_set == 'train':
         train = True
@@ -270,7 +294,7 @@ def create_torch_dataset(
     return dataset
 
 
-def create_dataloader(dataset: TensorDataset = None, batch_size: int = 32, shuffle: bool = True) -> DataLoader:
+def create_dataloader(dataset: Dataset = None, batch_size: int = 32, shuffle: bool = True) -> DataLoader:
     """
     Create a DataLoader object.
 
@@ -308,7 +332,12 @@ def get_labels_mapping(labelencoder: LabelEncoder) -> dict:
     dict
 
     Example
-    
+    -------
+    >>> le = LabelEncoder()
+    >>> labels = ['label1', 'label2', 'label3']
+    >>> le.fit_transform(labels)
+    >>> get_labels_mapping(labelencoder=le)
+    {0: 'label1', 1: 'label2', 2: 'label3'}
     """
 
     return dict(zip(labelencoder.transform(labelencoder.classes_), labelencoder.classes_))
