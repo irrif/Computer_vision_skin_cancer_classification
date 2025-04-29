@@ -1,14 +1,24 @@
-# CV Skin_Cancer
-## Deep Learning Project on Skin Cancer
+# Deep Learning skin diseases recognition
 
-More than 50% of lesions are confirmed through histopathology (histo), the ground truth for the rest of the cases is either follow-up examination (follow_up), expert consensus (consensus), or confirmation by in-vivo confocal microscopy (confocal).
+Deep learning skin diseases recognition system using CNN (Convolutional Neural Network) and ResNet (Residual Neural Network).
+
+## Authors
+- [@Florian IRRIEN](https://github.com/irrif)
+- [@Albin BROGIALDI](https://github.com/albinbrogialdi)
+- [@Luc SAGNES](https://github.com/LucSagnes)
+- [@Hugues DELATTRE](https://github.com/hugdelattre)
 
 
-Create a virtual environment with 
- `conda env create -n cv_skin_cancer --file environment.yaml`
+## Installation 
+To run this project on your device :
 
-then goes to : https://pytorch.org/get-started/locally/ and select according to your machine
+1. Clone this repository on your local machine : `git clone https://github.com/irrif/Computer_vision_skin_disease_classification.git`
 
-and then 
+2. Navigate to project directory : `cd Computer_vision_skin_disease_classification`
 
-`conda activate cv_skin_cancer`
+3. Create a virtual environment with  `conda env create -n cv_skin_disease --file environment.yaml`
+
+4. Then goes to : https://pytorch.org/get-started/locally/ and select according to your machine.
+![screenshot](Others/cuda_install_ex.png)
+
+5. Activate your conda environment with `conda activate cv_skin_disease`
