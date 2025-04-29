@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 
 from torchvision.transforms.functional import adjust_contrast
 
@@ -60,13 +59,20 @@ class SmallNetwork(nn.Module):
     
 
 class BasicBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
+    def __init__(
+            self,
+            in_channels,
+            out_channels,
+            stride=1
+        ):
         super(BasicBlock, self).__init__()
 
+        # First block convolution
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
+        # Second block convolution
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
@@ -95,9 +101,16 @@ class BasicBlock(nn.Module):
 
 
 class ResNet18(nn.Module):
-    def __init__(self, num_classes=7):
+    """
+    Implement ResNet18 neural network architecture.
+    """
+    def __init__(
+            self,
+            num_classes: int = 7
+        ):
         super(ResNet18, self).__init__()
 
+        self.num_classes = num_classes
         self.in_channels = 64
 
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=1, bias=False)
@@ -105,13 +118,37 @@ class ResNet18(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.layer1 = self._make_layer(block=BasicBlock, out_channels=64, n_blocks=2, stride=1)
-        self.layer2 = self._make_layer(block=BasicBlock, out_channels=128, n_blocks=2, stride=2)
-        self.layer3 = self._make_layer(block=BasicBlock, out_channels=256, n_blocks=2, stride=2)
-        self.layer4 = self._make_layer(block=BasicBlock, out_channels=512, n_blocks=2, stride=2)
+        self.layer1 = self._make_layer(
+            block=BasicBlock,
+            out_channels=64,
+            n_blocks=2,
+            stride=1
+        )
+
+        self.layer2 = self._make_layer(
+            block=BasicBlock,
+            out_channels=128,
+            n_blocks=2,
+            stride=2
+        )
+
+        self.layer3 = self._make_layer(
+            block=BasicBlock,
+            out_channels=256,
+            n_blocks=2,
+            stride=2
+        )
+
+        self.layer4 = self._make_layer(
+            block=BasicBlock,
+            out_channels=512,
+            n_blocks=2,
+            stride=2
+        )
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(in_features=512, out_features=num_classes)
+
 
     def _make_layer(self, block, out_channels, n_blocks, stride):
         strides = [stride] + [1] * (n_blocks - 1)
@@ -144,6 +181,9 @@ class ResNet18(nn.Module):
     
 
 class EarlyStopping():
+    """
+    Early stopping class.
+    """
     def __init__(self, patience=5, delta=0):
         self.patience = patience
         self.delta = delta
@@ -160,6 +200,7 @@ class EarlyStopping():
             model: nn.Module,
             epoch: int
         ) -> None:
+
         score = -val_loss
         if self.best_score is None:
             self.best_score = score
@@ -178,8 +219,11 @@ class EarlyStopping():
             self.best_model_state = model.state_dict()
             self.counter = 0
 
-    
+
     def load_best_model(self, model):
+        """
+        Load best model parameters.
+        """
         model.load_state_dict(self.best_model_state)
 
 
@@ -202,7 +246,7 @@ def train_model(
     model : pytorch model
         model to be trained
     device : torch.device
-        Device on which the model will be trained
+        Calculation device
     train_loader : torch.DataLoader
         Training DataLoader
     optimizer : torch.optim
@@ -221,6 +265,24 @@ def train_model(
     Returns
     -------
     (float, float)
+
+    Example
+    -------
+    >>> model = ResNet18(num_classes=7)
+    >>> device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    >>> train_dataloader = generate_dataloader(...)
+    >>> optimizer = optim.Adam(model.parameters, lr=0.0001)
+    >>> criterion = nn.CrossEntropyLoss()
+    >>> n_epochs = 50
+    >>> train_model(
+    >>>     model=model,
+    >>>     device=device,
+    >>>     train_loader=train_dataloader
+    >>>     optimizer=optimizer,
+    >>>     loss_function=criterion,
+    >>>     save=True,
+    >>>     verbose=2
+    >>> )
     """
     # Set model in training mode
     model.train()
@@ -282,24 +344,38 @@ def validate_model(
 
     Parameters
     ----------
-    model : pytorch model
-        model to be trained
+    model : nn.Module
+        model to validate
     device : torch.device
-        Device on which the model will be trained
+        Calculation device
     valid_loader : torch.DataLoader
         Validation DataLoader
     loss_function : nn.functional
         Loss function
     save : bool
         Set True to return the loss and accuracy history
-    verbose : int
+    verbose : bool
         Print loss and accuracy
-        * 1 : For each n batches
-        * 2 : For each n batches and for each epoch
 
     Returns
     -------
     (float, float)
+
+        Example
+    -------
+    >>> device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    >>> model = ResNet18(num_classes=7).to(device)
+    >>> valid_dataloader = generate_dataloader(...)
+    >>> optimizer = optim.Adam(model.parameters, lr=0.0001)
+    >>> criterion = nn.CrossEntropyLoss()
+    >>> validate_model(
+    >>>     model=model,
+    >>>     device=device,
+    >>>     valid_loader=valid_dataloader
+    >>>     loss_function=criterion,
+    >>>     save=True,
+    >>>     verbose=True
+    >>> )
     """
     model.to(device)
 
@@ -339,3 +415,79 @@ def validate_model(
         return avg_loss, accuracy
     else:
         return 0.0, 0.0
+    
+
+def test_model(
+        model: nn.Module,
+        device: torch.device,
+        test_loader : DataLoader,
+        verbose: bool
+    ) -> Tuple[float]:
+    """
+    On test set, return correct per classes, total length of class, overall accuracy.
+
+    Parameters
+    ----------
+    model : nn.Module
+        model to be tested
+    device : torch.device
+        Calculation device
+    test_loader : Dataloader
+        Test Dataloader
+    verbose : bool
+        Set to True to print metrics
+
+    Returns
+    -------
+    (correct_per_class, total_per_class, overall_accuracy)
+
+    Example
+    -------
+    >>> device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    >>> model = ResNet18().to(device)
+    >>> test_dataloader = generate_dataloader(...)
+    >>> test_model(
+    >>>     model=model,
+    >>>     device=device,
+    >>>     test_loader=test_dataloader,
+    >>>     verbose=True
+    >>> )
+    """
+    num_classes = 7
+    test_correct = 0
+    correct_per_class = [0] * num_classes
+    total_per_class = [0] * num_classes
+    # Store wrong predictions per true label
+    wrong_predictions = [[] for _ in range(num_classes)]
+
+    model.eval()
+    with torch.no_grad():
+        for sample in test_loader:
+            test_data, test_label = sample['image'].to(device), sample['label'].to(device)
+            y_pred_test = model(test_data).argmax(dim=1) # prediction
+            # Batch correct predictions
+            test_correct += y_pred_test.eq(test_label.view_as(y_pred_test)).sum().item()
+
+            # Correct and wrong predictions, per class
+            for true_label, pred_label in zip(test_label, y_pred_test):
+                true_label = true_label.item()
+                pred_label = pred_label.item()
+                # Counts the occurrences of each class
+                total_per_class[true_label] += 1
+                # Count correct predictions per class
+                if pred_label == true_label:
+                    correct_per_class[true_label] += 1
+                # Count wrong predictions per class
+                else:
+                    wrong_predictions[true_label].append(pred_label)
+
+    # Overall accuracy on test set
+    overall_accuracy = test_correct / len(test_loader.dataset) * 100
+
+    if verbose:
+        print("Test accuracy : {}/{} ({:.2f}%)".format(
+            test_correct, len(test_loader.dataset), 
+            overall_accuracy
+        ))
+
+    return correct_per_class, total_per_class, overall_accuracy
