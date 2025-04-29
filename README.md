@@ -4,10 +4,6 @@ Deep learning skin diseases recognition system using CNN (Convolutional Neural N
 
 ## Authors
 - [@Florian IRRIEN](https://github.com/irrif)
-- [@Albin BROGIALDI](https://github.com/albinbrogialdi)
-- [@Luc SAGNES](https://github.com/LucSagnes)
-- [@Hugues DELATTRE](https://github.com/hugdelattre)
-
 
 ## Installation 
 To run this project on your device :
