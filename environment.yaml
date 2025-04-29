@@ -1,4 +1,4 @@
-name: cv_skin_cancer
+name: cv_skin_disease
 channels:
   - pytorch
   - nvidia
