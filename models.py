@@ -1,5 +1,7 @@
 from typing import Tuple
 
+from collections import defaultdict
+
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
@@ -424,7 +426,8 @@ def test_model(
         verbose: bool
     ) -> Tuple[float]:
     """
-    On test set, return correct per classes, total length of class, overall accuracy.
+    Test the model and returns a dictionnary containing per-class
+    precision, recall, F1-Score, and also the overall accuracy.
 
     Parameters
     ----------
@@ -439,7 +442,8 @@ def test_model(
 
     Returns
     -------
-    (correct_per_class, total_per_class, overall_accuracy)
+    dict : A dictionary with per-class precision, recall, F1-score\
+    and overall accuracy
 
     Example
     -------
@@ -453,30 +457,35 @@ def test_model(
     >>>     verbose=True
     >>> )
     """
-    num_classes = 7
+    num_classes = model.num_classes
     test_correct = 0
-    correct_per_class = [0] * num_classes
-    total_per_class = [0] * num_classes
-    # Store wrong predictions per true label
-    wrong_predictions = [[] for _ in range(num_classes)]
+    total_per_class = defaultdict(int)
+    correct_per_class = defaultdict(int)
+    wrong_predictions = defaultdict(list)
+    predicted_as_class = defaultdict(int)
 
     model.eval()
     with torch.no_grad():
         for sample in test_loader:
             test_data, test_label = sample['image'].to(device), sample['label'].to(device)
             y_pred_test = model(test_data).argmax(dim=1) # prediction
+
             # Batch correct predictions
-            test_correct += y_pred_test.eq(test_label.view_as(y_pred_test)).sum().item()
+            test_correct += y_pred_test.eq(test_label).sum().item()
 
             # Correct and wrong predictions, per class
             for true_label, pred_label in zip(test_label, y_pred_test):
                 true_label = true_label.item()
                 pred_label = pred_label.item()
+
                 # Counts the occurrences of each class
                 total_per_class[true_label] += 1
+                predicted_as_class[pred_label] += 1
+
                 # Count correct predictions per class
                 if pred_label == true_label:
                     correct_per_class[true_label] += 1
+
                 # Count wrong predictions per class
                 else:
                     wrong_predictions[true_label].append(pred_label)
@@ -490,4 +499,67 @@ def test_model(
             overall_accuracy
         ))
 
-    return correct_per_class, total_per_class, overall_accuracy
+    metrics = compute_classification_metrics(
+        correct_per_class=correct_per_class,
+        wrong_predictions=wrong_predictions,
+        predicted_as_class=predicted_as_class,
+        num_classes=num_classes
+
+    )
+
+    metrics['overall_accuracy'] = overall_accuracy
+
+    return metrics
+
+
+def compute_classification_metrics(
+        correct_per_class: dict, 
+        wrong_predictions: dict, 
+        predicted_as_class: dict, 
+        num_classes: int
+    ) -> dict:
+    """
+    Compute Precision, Recall, and F1-Score for each class.
+
+    Parameters
+    ----------
+    correct_per_class : dict
+        Counts of correct predictions per class (TP).
+    wrong_predictions : dict
+        Dict mapping class to list of mispredicted classes (FN).
+    predicted_as_class : dict
+        Counts of predictions made as each class (TP + FP).
+    num_classes : int
+        Number of total classes.
+
+    Returns
+    -------
+    dict : A dictionary with per-class precision, recall, and F1-score.
+    """
+    precision_dict = {}
+    recall_dict = {}
+    f1_dict = {}
+
+    for i in range(num_classes):
+        tp = correct_per_class.get(i, 0)
+        fn = len(wrong_predictions.get(i, []))
+        fp = predicted_as_class.get(i, 0) - tp
+
+        # Avoid division by zero
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+        if (precision + recall) > 0:
+            f1_score = 2 * precision * recall / (precision + recall)
+        else:
+            f1_score = 0
+
+        precision_dict[i] = precision
+        recall_dict[i] = recall
+        f1_dict[i] = f1_score
+
+    return {
+        'precision': precision_dict,
+        'recall': recall_dict,
+        'f1': f1_dict
+    }
