@@ -426,8 +426,10 @@ def test_model(
         verbose: bool
     ) -> Tuple[float]:
     """
-    Test the model and returns a dictionnary containing per-class
-    precision, recall, F1-Score, and also the overall accuracy.
+    Test the model and returns a dictionnary containing per-class precision, recall, F1-Score.\n
+    But also overall acurracy, macro F1 score and average F1 score.\n
+    And correct labels and true labels for each predictions
+
 
     Parameters
     ----------
@@ -442,8 +444,7 @@ def test_model(
 
     Returns
     -------
-    dict : A dictionary with per-class precision, recall, F1-score\
-    and overall accuracy
+    dict
 
     Example
     -------
@@ -459,6 +460,9 @@ def test_model(
     """
     num_classes = model.num_classes
     test_correct = 0
+
+    y_true_all, y_pred_all = [], []
+
     total_per_class = defaultdict(int)
     correct_per_class = defaultdict(int)
     wrong_predictions = defaultdict(list)
@@ -472,6 +476,9 @@ def test_model(
 
             # Batch correct predictions
             test_correct += y_pred_test.eq(test_label).sum().item()
+
+            y_true_all.extend(test_label.cpu().tolist())
+            y_pred_all.extend(y_pred_test.cpu().tolist())
 
             # Correct and wrong predictions, per class
             for true_label, pred_label in zip(test_label, y_pred_test):
@@ -501,19 +508,22 @@ def test_model(
 
     metrics = compute_classification_metrics(
         correct_per_class=correct_per_class,
+        total_per_class=total_per_class,
         wrong_predictions=wrong_predictions,
         predicted_as_class=predicted_as_class,
         num_classes=num_classes
-
     )
 
     metrics['overall_accuracy'] = overall_accuracy
+    metrics['correct_labels'] = y_true_all
+    metrics['predicted_labels'] = y_pred_all
 
     return metrics
 
 
 def compute_classification_metrics(
         correct_per_class: dict, 
+        total_per_class: dict,
         wrong_predictions: dict, 
         predicted_as_class: dict, 
         num_classes: int
@@ -540,10 +550,14 @@ def compute_classification_metrics(
     recall_dict = {}
     f1_dict = {}
 
+    macro_f1_sum, weighted_f1_sum = 0, 0
+    total_samples = sum(total_per_class.values())
+
     for i in range(num_classes):
         tp = correct_per_class.get(i, 0)
         fn = len(wrong_predictions.get(i, []))
         fp = predicted_as_class.get(i, 0) - tp
+        support = total_per_class.get(i, 0)
 
         # Avoid division by zero
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -558,8 +572,45 @@ def compute_classification_metrics(
         recall_dict[i] = recall
         f1_dict[i] = f1_score
 
+        macro_f1_sum += f1_score
+        weighted_f1_sum += f1_score * support
+
+    macro_f1 = macro_f1_sum / num_classes
+    weighted_f1 = weighted_f1_sum / total_samples if total_samples > 0 else 0
+
     return {
         'precision': precision_dict,
         'recall': recall_dict,
-        'f1': f1_dict
+        'f1': f1_dict,
+        'macro_f1': macro_f1,
+        'weighted_f1': weighted_f1
     }
+
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def plot_confusion_matrix(y_true, y_pred, class_names=None, normalize=False):
+    """
+    Plot a confusion matrix using Seaborn heatmap.
+
+    Parameters:
+        y_true (list): Ground truth labels.
+        y_pred (list): Predicted labels.
+        class_names (list of str): Optional list of class names.
+        normalize (bool): Whether to normalize the matrix row-wise.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1, keepdims=True)
+    
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='.2f' if normalize else 'd', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix' + (' (Normalized)' if normalize else ''))
+    plt.tight_layout()
+    plt.show()
