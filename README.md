@@ -14,7 +14,7 @@ To run this project on your device :
 
 3. Create a virtual environment with  `conda env create -n cv_skin_disease --file environment.yaml`
 
-4. Then goes to : https://pytorch.org/get-started/locally/ and select according to your machine.
+4. Then goes to : https://pytorch.org/get-started/locally/ and select according to your machine and run the command.
 ![screenshot](Others/cuda_install_ex.png)
 
 5. Activate your conda environment with `conda activate cv_skin_disease`
