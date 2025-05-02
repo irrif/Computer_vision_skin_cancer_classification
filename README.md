@@ -3,7 +3,7 @@
 Deep learning skin diseases recognition system using CNN (Convolutional Neural Network) and ResNet (Residual Neural Network).
 
 ## Authors
-- [@Florian IRRIEN](https://github.com/irrif)
+- [@Florian IRRIEN](https://www.linkedin.com/in/florian-irrien/)
 
 ## Installation 
 To run this project on your device :
