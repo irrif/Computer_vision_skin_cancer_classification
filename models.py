@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 from collections import defaultdict
 
@@ -8,6 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torchvision.transforms.functional import adjust_contrast
+
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
+
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 class SmallNetwork(nn.Module):
@@ -417,14 +422,14 @@ def validate_model(
         return avg_loss, accuracy
     else:
         return 0.0, 0.0
-    
+
 
 def test_model(
-        model: nn.Module,
+        models: Union[nn.Module, list],
         device: torch.device,
         test_loader : DataLoader,
         verbose: bool
-    ) -> Tuple[float]:
+    ) -> dict:
     """
     Test the model and returns a dictionnary containing per-class precision, recall, F1-Score.\n
     But also overall acurracy, macro F1 score and average F1 score.\n
@@ -458,59 +463,101 @@ def test_model(
     >>>     verbose=True
     >>> )
     """
-    num_classes = model.num_classes
-    test_correct = 0
+    models = _ensure_model_list(models)
+    for model in models:
+        model.eval()
+
+    num_classes = models[0].num_classes
 
     y_true_all, y_pred_all = [], []
 
-    total_per_class = defaultdict(int)
-    correct_per_class = defaultdict(int)
-    wrong_predictions = defaultdict(list)
-    predicted_as_class = defaultdict(int)
+    stats = _initialize_per_class_dict()
 
-    model.eval()
     with torch.no_grad():
         for sample in test_loader:
             test_data, test_label = sample['image'].to(device), sample['label'].to(device)
-            y_pred_test = model(test_data).argmax(dim=1) # prediction
 
-            # Batch correct predictions
-            test_correct += y_pred_test.eq(test_label).sum().item()
+            logits = get_models_predictions(models, test_data)
+            y_pred_test = torch.argmax(logits, dim=1) # prediction
+
+            _update_per_class_dict(stats, y_pred_test, test_label)
 
             y_true_all.extend(test_label.cpu().tolist())
             y_pred_all.extend(y_pred_test.cpu().tolist())
 
-            # Correct and wrong predictions, per class
-            for true_label, pred_label in zip(test_label, y_pred_test):
-                true_label = true_label.item()
-                pred_label = pred_label.item()
-
-                # Counts the occurrences of each class
-                total_per_class[true_label] += 1
-                predicted_as_class[pred_label] += 1
-
-                # Count correct predictions per class
-                if pred_label == true_label:
-                    correct_per_class[true_label] += 1
-
-                # Count wrong predictions per class
-                else:
-                    wrong_predictions[true_label].append(pred_label)
-
-    # Overall accuracy on test set
-    overall_accuracy = test_correct / len(test_loader.dataset) * 100
+            metrics = _finalize_metrics(
+                stats, y_true_all, y_pred_all, test_loader, compute_classification_metrics, num_classes
+            )
 
     if verbose:
         print("Test accuracy : {}/{} ({:.2f}%)".format(
-            test_correct, len(test_loader.dataset), 
-            overall_accuracy
+            stats['correct_total'], len(test_loader.dataset), 
+            metrics['overall_accuracy']
         ))
 
-    metrics = compute_classification_metrics(
-        correct_per_class=correct_per_class,
-        total_per_class=total_per_class,
-        wrong_predictions=wrong_predictions,
-        predicted_as_class=predicted_as_class,
+    return metrics
+
+
+def _ensure_model_list(models):
+    """ 
+    Check if a list of models is provided or not.
+    """
+    return models if isinstance(models, (list, tuple)) else [models]
+
+
+def get_models_predictions(models, input_tensor):
+    """
+    Predictions.
+    """
+    logits = [model(input_tensor) for model in models]
+    return torch.mean(torch.stack(logits), dim=0)
+
+
+def _initialize_per_class_dict():
+    """
+    Create a dictionnary that contains per class wrong, correct and total predictions.
+    """
+    return {
+        'correct_total': 0,
+        'total_per_class': defaultdict(int),
+        'correct_per_class': defaultdict(int),
+        'wrong_predictions': defaultdict(list),
+        'predicted_as_class': defaultdict(int),
+    }
+
+
+def _update_per_class_dict(stats: dict, y_pred: torch.tensor, y_true: torch.tensor):
+    """
+    Compute per class total, correct and wrong predictions.
+    """
+    stats['correct_total'] += y_pred.eq(y_true).sum().item()
+
+    for true_label, pred_label in zip(y_true, y_pred):
+        true_label = true_label.item()
+        pred_label = pred_label.item()
+
+        stats['total_per_class'][true_label] += 1
+        stats['predicted_as_class'][pred_label] += 1
+
+        if true_label == pred_label:
+            stats['correct_per_class'][true_label] += 1
+        else:
+            stats['wrong_predictions'][true_label].append(pred_label)
+
+
+def _finalize_metrics(stats, y_true_all, y_pred_all, test_loader, compute_fn, num_classes):
+    """
+    Compute 
+    """
+    overall_accuracy = stats['correct_total'] / len(test_loader.dataset) * 100
+
+    metrics = compute_fn(
+        correct_per_class=stats['correct_per_class'],
+        total_per_class=stats['total_per_class'],
+        wrong_predictions=stats['wrong_predictions'],
+        predicted_as_class=stats['predicted_as_class'],
+        y_true=y_true_all,
+        y_pred=y_pred_all,
         num_classes=num_classes
     )
 
@@ -526,6 +573,8 @@ def compute_classification_metrics(
         total_per_class: dict,
         wrong_predictions: dict, 
         predicted_as_class: dict, 
+        y_true: list,
+        y_pred: list,
         num_classes: int
     ) -> dict:
     """
@@ -578,39 +627,15 @@ def compute_classification_metrics(
     macro_f1 = macro_f1_sum / num_classes
     weighted_f1 = weighted_f1_sum / total_samples if total_samples > 0 else 0
 
+    macro_precision = precision_score(y_true=y_true, y_pred=y_pred, average='macro')
+    macro_recall = recall_score(y_true=y_true, y_pred=y_pred, average='macro', zero_division=0.0)
+
     return {
-        'precision': precision_dict,
-        'recall': recall_dict,
-        'f1': f1_dict,
+        'per_class_precision': precision_dict,
+        'per_class_recall': recall_dict,
+        'per_class_f1': f1_dict,
+        'macro_precision': macro_precision,
+        'macro_recall': macro_recall,
         'macro_f1': macro_f1,
         'weighted_f1': weighted_f1
     }
-
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
-
-
-def plot_confusion_matrix(y_true, y_pred, class_names=None, normalize=False):
-    """
-    Plot a confusion matrix using Seaborn heatmap.
-
-    Parameters:
-        y_true (list): Ground truth labels.
-        y_pred (list): Predicted labels.
-        class_names (list of str): Optional list of class names.
-        normalize (bool): Whether to normalize the matrix row-wise.
-    """
-    cm = confusion_matrix(y_true, y_pred)
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1, keepdims=True)
-    
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='.2f' if normalize else 'd', cmap='Blues',
-                xticklabels=class_names, yticklabels=class_names)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.title('Confusion Matrix' + (' (Normalized)' if normalize else ''))
-    plt.tight_layout()
-    plt.show()
