@@ -42,7 +42,7 @@ class CustomDataset(Dataset):
             # If train set, apply data augmentation only on minority classes
             if self.train and label in self.minority_classes:
                 data = self.transform(data)
-            else:
+            elif not self.train:
                 data = self.transform(data)
         
         # Ensure that all images are 224x224 pixels
